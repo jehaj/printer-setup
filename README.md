@@ -114,7 +114,7 @@ The `config/examples/Creality/Ender-5 Pro/CrealityV422/` example configuration a
 
 > [!NOTE]
 > **Z-Axis Steps Verification (800 vs. 400):** Newer Ender 5 Pro v4.2.2 models use a T8x2 lead screw (800 steps/mm), which is already set in the example config. Older models use T8x4 (400 steps/mm). Verify physical bed travel after flashing (see Section 5, Step 2).
->
+
 > [!WARNING]
 > **Do NOT enable Linear Advance (`LIN_ADVANCE`):** The TMC2208 drivers on the v4.2.2 board operate in standalone StealthChop mode without UART communication. Rapid step-direction pulses from Linear Advance frequently cause the extruder driver to freeze mid-print. See the [Marlin Linear Advance Documentation](https://marlinfw.org/docs/features/lin_advance.html).
 
@@ -146,13 +146,13 @@ Make only the following edits to `Configuration.h`:
    ```
    *(If using an adapter that plugs the 2-pin black/white wire into the mechanical Z-stop socket, leave this line enabled).*
 
-   > [!IMPORTANT]
-   > **High-Air Probe Safety Test:**  
-   > On the Ender 5 Pro, the bed rises **upward** toward the stationary nozzle gantry during Z-homing. Before letting the nozzle get anywhere near the bed, test the probe high in the air:
-   > * Manually lower the bed (or jog Z down) so there is at least 100 mm of clearance below the nozzle.
-   > * Initiate Z homing (`G28 Z`).
-   > * While the bed is still rising and 50–100 mm away from the nozzle, **trigger the Z-probe pin with your finger**.
-   > * If the Z-axis does **not** stop immediately, cut power to the printer immediately! This means your probe wiring (`PB1` vs. `PA7`) or logic inversion (`Z_MIN_PROBE_ENDSTOP_INVERTING`) is wrong. You can also verify probe states while stationary by sending `M119` (Endstop Status) via terminal.
+> [!IMPORTANT]
+> **High-Air Probe Safety Test:**  
+> On the Ender 5 Pro, the bed rises **upward** toward the stationary nozzle gantry during Z-homing. Before letting the nozzle get anywhere near the bed, test the probe high in the air:
+> * Manually lower the bed (or jog Z down) so there is at least 100 mm of clearance below the nozzle.
+> * Initiate Z homing (`G28 Z`).
+> * While the bed is still rising and 50–100 mm away from the nozzle, **trigger the Z-probe pin with your finger**.
+> * If the Z-axis does **not** stop immediately, cut power to the printer immediately! This means your probe wiring (`PB1` vs. `PA7`) or logic inversion (`Z_MIN_PROBE_ENDSTOP_INVERTING`) is wrong. You can also verify probe states while stationary by sending `M119` (Endstop Status) via terminal.
 
 3. **Physical Nozzle-to-Probe Offsets (Line ~1530)**
    Update the default offsets (`{-40, -13, -1.45}`) with your physical mounting distance:
