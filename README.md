@@ -60,7 +60,7 @@ G28 ; Home all axes
 G29 ; Auto bed leveling (creates new mesh)
 
 ; Position and final heat
-G1 Z50 F240 ; Drop bed for clearance
+G1 Z20 F240 ; Drop bed 20mm for clearance
 G1 X2 Y10 F3000 ; Move to start position
 M104 S{first_layer_temperature[0]} ; Set target nozzle temperature
 M109 S{first_layer_temperature[0]} ; Wait for nozzle temperature to stabilize
@@ -124,17 +124,30 @@ The `A` marking on the SD card reader indicates TMC2208 drivers. In Creality 4.2
 #define Z_DRIVER_TYPE  TMC2208_STANDALONE
 #define E0_DRIVER_TYPE TMC2208_STANDALONE
 
+#define DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 800, 93 }
 ```
+
+* **Z-Axis Steps Reminder (800 vs. 400):**
+  * Newer Ender 5 Pro models equipped with the v4.2.2 silent board use an updated **T8x2 lead screw** (2 mm lead) that requires **800 steps/mm** to prevent bed dropping.
+  * Older models used a T8x4 screw requiring **400 steps/mm**.
+  * **Action Required:** Verify physical travel after flashing. Send `G1 Z10` via terminal: if the bed moves 5 mm instead of 10 mm, change to 800; if it moves 20 mm, change to 400 (`M92 Z<val>` followed by `M500`).
+* **Note on Linear Advance (`LIN_ADVANCE`):**
+  * Do not enable `LIN_ADVANCE` on this setup. Because the TMC2208 drivers on the v4.2.2 board are hardwired in standalone StealthChop mode without UART, the rapid step direction pulses from Linear Advance frequently cause the extruder driver to freeze or skip steps mid-print. See the [Marlin Linear Advance Documentation](https://marlinfw.org/docs/features/lin_advance.html).
 
 
 2. **Probe and Homing**
-[Marlin BLTouch Documentation](https://www.google.com/search?q=https://marlinfw.org/docs/configuration/configuration.html%2523bltouch&utm_source=gemini)
+[Marlin BLTouch Documentation](https://marlinfw.org/docs/configuration/configuration.html#bltouch)
 Uncomment `ENDER5_USE_BLTOUCH` if present in your example file, or define the following directly:
 ```cpp
 #define BLTOUCH
 #define USE_PROBE_FOR_Z_HOMING
 #define Z_SAFE_HOMING
 
+// CRITICAL WIRING CHECK:
+// If using the dedicated 5-pin probe port on the v4.2.2 board, ensure:
+//#define Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN
+// remains COMMENTED OUT so Marlin reads the probe signal from PB1 instead of PA7.
+// If using an adapter that plugs the 2-pin black/white wire into the mechanical Z-stop socket, UNCOMMENT that line.
 ```
 
 
@@ -152,21 +165,25 @@ Physical distance measured from the nozzle tip to the BLTouch probe tip:
 
 
 4. **Bed Leveling and Insets**
-[Marlin Bed Leveling Documentation](https://marlinfw.org/docs/features/auto_bed_leveling.html?utm_source=gemini)
+[Marlin Bed Leveling Documentation](https://marlinfw.org/docs/features/auto_bed_leveling.html)
 ```cpp
 #define AUTO_BED_LEVELING_BILINEAR
 #define RESTORE_LEVELING_AFTER_G28
+#define GRID_MAX_POINTS_X 5
 
 ```
+* A 5x5 grid samples 25 points across the bed, providing a substantially better representation of bed deviations than the default 3x3 (9 points).
 
 
 5. **Hotend Temperature Control (MPC)**
-[Marlin MPC Documentation](https://marlinfw.org/docs/features/model_predictive_control.html?utm_source=gemini)
+[Marlin MPC Documentation](https://marlinfw.org/docs/features/model_predictive_control.html)
 Model Predictive Control models heat transfer directly and avoids sudden temperature drops when the cooling fan ramps up.
 ```cpp
 #define MPCTEMP
 // Comment out PIDTEMP when MPCTEMP is used
-
+#define MPC_AUTOTUNE
+#define MPC_HEATER_POWER { 40.0f } // Stock Ender 5 Pro 24V 40W heater cartridge
+#define MPC_INCLUDE_FAN
 ```
 
 
@@ -194,12 +211,21 @@ Because the probe is offset by X-45, an inset of 45 mm prevents the probe from t
 
 #### `Marlin/Configuration_adv.h`
 
-Enable the interactive offset calibration tool:
-
+1. **Probe Offset Wizard and Mesh Extrapolation**
 ```cpp
 #define PROBE_OFFSET_WIZARD
-
+#define EXTRAPOLATE_BEYOND_GRID
 ```
+* `EXTRAPOLATE_BEYOND_GRID`: Crucial for the Ender 5 with BLTouch. Because the probe is offset by X-45 mm, it cannot measure the rightmost 45 mm ($X = 175\text{ to }220\text{ mm}$). This feature actively predicts and compensates bed tilt in that unreachable margin rather than assuming it is flat.
+
+2. **Live Babystepping**
+[Marlin Babystepping Documentation](https://marlinfw.org/docs/features/babystepping.html)
+```cpp
+#define BABYSTEPPING
+#define BABYSTEP_ZPROBE_OFFSET
+#define BABYSTEP_HOTEND_Z_OFFSET
+```
+* Enables fine-tuning Z-height during the first layer by double-clicking the LCD knob. Adjusting babysteps directly modifies and saves the active Z-probe offset to EEPROM.
 
 ---
 
@@ -219,23 +245,49 @@ Run through these steps in sequence after flashing a new build:
 
 1. **Clear EEPROM:**
 Navigate on the screen to `Configuration -> Advanced Settings -> Initialize EEPROM` (or run `M502` followed by `M500` via terminal). This clears legacy values that cause extreme offsets.
-2. **Tune Hotend MPC:**
-Run the autotune routine from the terminal:
+
+2. **Verify Z-Axis Travel Distance (800 vs. 400 Check):**
+Before homing or printing, verify that the Z lead screw steps match your physical hardware:
+* Place a small ruler next to the bed or note the starting height.
+* Send `G1 Z10 F200` via terminal or jog Z up by 10 mm via the LCD.
+* Measure the physical bed movement:
+  * If it moved **10 mm**, your steps are correct (800 steps/mm).
+  * If it moved only **5 mm**, your firmware is set to 400 but needs 800: send `M92 Z800` then `M500`.
+  * If it moved **20 mm**, your firmware is set to 800 but needs 400: send `M92 Z400` then `M500`.
+
+3. **Tune Hotend MPC:**
+Ensure the hotend is completely cold (ambient room temperature) before starting:
 ```gcode
 M306 E0 T ; Autotune MPC on hotend
 M500      ; Save constants to EEPROM
-
 ```
 
+4. **Calibrate Extruder E-Steps (100 mm Test):**
+Ensure the extruder feeds precisely the length of filament requested by the slicer:
+* Heat the hotend to your printing temperature (e.g. 200 °C for PLA).
+* Measure and mark the filament with a fine marker at **100 mm** and **120 mm** from the extruder intake hole.
+* Send the following via terminal to extrude 100 mm slowly:
+  ```gcode
+  M83          ; Relative extruder mode
+  G1 E100 F100 ; Extrude 100 mm at 100 mm/min
+  ```
+* Measure the remaining distance from the intake hole to the 120 mm mark:
+  * If exactly 20 mm remains, exactly 100 mm was extruded (`93.0` steps/mm is accurate).
+  * If the actual extruded length differs, calculate the correction:
+    $$\text{New E-steps} = \frac{100 \times \text{Current E-steps}}{\text{Actual Length Extruded}}$$
+  * Update and save: send `M92 E<new_value>` then `M500`.
 
-3. **Bed Tramming:**
+5. **Bed Tramming:**
 Navigate to `Motion -> Bed Tramming`. Adjust the corner hand screws until the audible confirmation tone indicates all corners are level relative to each other.
-4. **Calibrate Z-Probe Offset:**
+
+6. **Calibrate Z-Probe Offset:**
 * Place a sheet of standard paper on the center of the bed.
 * Navigate to `Configuration -> Advanced Settings -> Probe Offsets -> Z-Probe Wizard`.
 * Lower the nozzle until it creates light sliding resistance on the paper.
 * Finish the wizard and accept the value. Expected target is typically between -1.50 mm and -3.00 mm.
 
-
-5. **Commit Settings to Memory:**
+7. **Commit Settings to Memory:**
 Navigate to `Configuration -> Store Settings` (or run `M500`). Listen for the confirmation beep. Reboot the printer and verify that the stored offset remains unchanged.
+
+8. **First Layer Live Babystepping:**
+During your first test print (e.g. a bed leveling test or skirt), double-click the LCD knob to open the babystep menu. Adjust Z live in 0.01 mm increments until the extrusion lines gently squish together without overlapping or peeling. Marlin will automatically offer to commit the babystepped offset to EEPROM.
